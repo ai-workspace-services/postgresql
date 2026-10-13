@@ -40,7 +40,32 @@ jq -n \
 printf '%s\n' "${assets_dir}"
 
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-  gh release view "${release_tag}" >/dev/null 2>&1 || \
-    gh release create "${release_tag}" --title "${GITHUB_REPOSITORY} ${release_tag}" --notes "Automated CI release for ${GITHUB_SHA}."
-  gh release upload "${release_tag}" "${assets_dir}"/* --clobber
+  # With immutable releases enabled, assets cannot be added once a release is
+  # published (HTTP 422), and `gh release create` publishes immediately. Build
+  # the release as a draft, attach every asset, and publish last. `gh release
+  # view` does not see drafts, so look the tag up through `gh release list`.
+  release_state="$(gh release list --limit 100 --json tagName,isDraft \
+    | jq -r --arg tag "${release_tag}" \
+      '[.[] | select(.tagName == $tag)] | if length == 0 then "none" else (.[0].isDraft | tostring) end')"
+
+  if [[ "${release_state}" == "none" ]]; then
+    gh release create "${release_tag}" --draft --title "${GITHUB_REPOSITORY} ${release_tag}" --notes "Automated CI release for ${GITHUB_SHA}."
+    release_state=true
+  fi
+
+  if [[ "${release_state}" == "true" ]]; then
+    gh release upload "${release_tag}" "${assets_dir}"/* --clobber
+    gh release edit "${release_tag}" --draft=false
+  elif ! gh release upload "${release_tag}" "${assets_dir}"/* --clobber; then
+    # A re-run found the release already published. An immutable release keeps
+    # the assets from the first run, so only fail when one of them is missing.
+    wanted_assets="$(find "${assets_dir}" -maxdepth 1 -type f -print | sed 's#^.*/##' | jq -Rsc 'split("\n") | map(select(length > 0))')"
+    published_assets="$(gh release view "${release_tag}" --json assets --jq '[.assets[].name]')"
+    missing_assets="$(jq -nc --argjson wanted "${wanted_assets}" --argjson published "${published_assets}" '$wanted - $published')"
+    [[ "${missing_assets}" == "[]" ]] || {
+      echo "::error::Release ${release_tag} is already published and is missing assets: ${missing_assets}" >&2
+      exit 1
+    }
+    echo "Release ${release_tag} is already published with all assets; nothing to upload."
+  fi
 fi
