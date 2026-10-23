@@ -167,7 +167,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
@@ -188,6 +188,7 @@ jobs:
 
       - name: Vault Authentication
         id: vault
+        if: ${{ github.event_name != 'pull_request' }}
         uses: hashicorp/vault-action@v4
         with:
           url: https://vault.svc.plus
@@ -201,7 +202,12 @@ jobs:
       - name: Validate Helm Is Available
         run: helm version
 
+      - name: Package Chart (pull request validation)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: helm package "${CHART_DIR}" --destination "${RUNNER_TEMP}"
+
       - name: Package And Push Chart
+        if: ${{ github.event_name != 'pull_request' }}
         run: .github/scripts/utils/package-push-chart.sh
         env:
           GHCR_TOKEN: ${{ steps.vault.outputs.GHCR_TOKEN }}
