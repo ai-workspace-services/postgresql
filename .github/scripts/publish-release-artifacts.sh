@@ -26,7 +26,7 @@ if [[ -n "${CHART_DIR:-}" ]]; then
   helm package "${CHART_DIR}" --version "${CHART_VERSION}" --destination "${assets_dir}" >/dev/null
 fi
 
-files_json="$(find "${assets_dir}" -maxdepth 1 -type f -print | sed 's#^.*/##' | jq -Rsc 'split("\\n") | map(select(length > 0))')"
+files_json="$(find "${assets_dir}" -maxdepth 1 -type f -print | sed 's#^.*/##' | jq -Rsc 'split("\n") | map(select(length > 0))')"
 jq -n \
   --arg repository "${GITHUB_REPOSITORY}" \
   --arg commit "${GITHUB_SHA}" \
@@ -34,7 +34,7 @@ jq -n \
   --arg image_refs "${IMAGE_REFS:-}" \
   --arg chart_refs "${CHART_REFS:-}" \
   --argjson files "${files_json}" \
-  '{schema: 1, repository: $repository, commit: $commit, tag: $tag, image_refs: ($image_refs | split("\\n") | map(select(length > 0))), chart_refs: ($chart_refs | split("\\n") | map(select(length > 0))), files: $files}' \
+  '{schema: 1, repository: $repository, commit: $commit, tag: $tag, image_refs: ($image_refs | split("\n") | map(select(length > 0))), chart_refs: ($chart_refs | split("\n") | map(select(length > 0))), files: $files}' \
   > "${assets_dir}/release-manifest.json"
 
 printf '%s\n' "${assets_dir}"
