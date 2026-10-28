@@ -81,6 +81,9 @@ jobs:
       - name: Check Out Repository
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
 
+      - name: Test Main image evidence contract
+        run: python3 .github/scripts/test_write_main_image_build.py
+
       - name: Resolve Environment
         id: env
         # $3 只在 workflow_dispatch/workflow_call 触发时展开成 true/false;
@@ -117,6 +120,7 @@ jobs:
               PGMQ_VERSION=v1.8.0
     steps:
       - name: Check Out Repository
+        id: source
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
 
       - name: Vault Authentication
@@ -164,6 +168,7 @@ jobs:
             type=raw,value=latest,enable=${{ inputs.push_latest == true }}
 
       - name: Build And Push Image
+        id: publish
         uses: docker/build-push-action@83bfd93ab480705a7b99a2ed02765137f5ab55ba
         with:
           context: ${{ matrix.context }}
@@ -173,6 +178,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ matrix.build_args }}
+
+      - name: Record immutable PostgreSQL Main image evidence
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.image_name == 'postgresql'
+        env:
+          CHECKED_OUT_SHA: ${{ steps.source.outputs.commit }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          EVIDENCE_PATH: ${{ runner.temp }}/main-image-build.json
+        run: python3 .github/scripts/write-main-image-build.py
+
+      - name: Retain immutable PostgreSQL Main image evidence
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.image_name == 'postgresql'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: postgresql-main-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/main-image-build.json
+          if-no-files-found: error
+          retention-days: 30
 
   build-and-push-chart:
     needs: [prep, build-and-push-images]
